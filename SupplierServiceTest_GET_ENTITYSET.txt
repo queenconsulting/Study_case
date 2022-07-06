@@ -1,0 +1,92 @@
+METHOD SupplierServiceTest_get_entityset.
+
+  DATA: lt_filters        TYPE /iwbep/t_mgw_select_option,
+        ls_filter         TYPE /iwbep/s_mgw_select_option,
+        ls_so             TYPE /iwbep/s_cod_select_option,
+        ls_SupplierServiceTest TYPE zcl_ztest_odata_mpc=>ts_consumerest.
+
+  DATA: lv_restsrvurl  TYPE string,                     "Var for Http REST Service Url
+        lv_http_client TYPE REF TO if_http_client,      "Var for Rest Http Client
+        lv_request     TYPE string,
+        lv_response    TYPE string.
+
+
+* Initiating filter to Read input from EnitySet of ODataService
+  lt_filters = io_tech_request_context->get_filter( )->get_filter_select_options( ).
+
+* Extract input from Property 'REQUEST' of EntitySet 'SupplierServiceTest'
+  CLEAR ls_filter.
+  READ TABLE lt_filters WITH TABLE KEY property = 'REQUEST' INTO ls_filter.
+  IF sy-subrc EQ 0.
+    READ TABLE ls_filter-select_options INTO ls_so INDEX 1.
+    IF sy-subrc EQ 0.
+      lv_request = ls_so-low.
+    ENDIF.
+  ENDIF.
+
+* REST Service URL that AWS will publish
+  lv_restsrvurl = 'http://<ServiceIP>:<Port>/<REST_Service_Path>'.
+
+* Call REST Service ===================================
+
+  CALL METHOD cl_http_client=>create_by_url
+    EXPORTING
+      url                = lv_restsrvurl
+    IMPORTING
+      client             = lv_http_client
+    EXCEPTIONS
+      argument_not_found = 1
+      plugin_not_active  = 2
+      internal_error     = 3
+      OTHERS             = 4.
+
+  CALL METHOD lv_http_client->authenticate
+    EXPORTING
+      username = 'Service_user-id'
+      password = 'Service_password'.
+
+  CALL METHOD lv_http_client->request->set_header_field
+    EXPORTING
+      name  = '~request_method'
+      value = 'POST'.
+
+  CALL METHOD lv_http_client->request->set_header_field
+    EXPORTING
+      name  = 'Content-Type'
+      value = 'application/json; charset=utf-8'.
+
+  CALL METHOD lv_http_client->request->set_header_field
+    EXPORTING
+      name  = 'Accept'
+      value = 'application/json, text/html'.
+
+
+  CALL METHOD lv_http_client->request->set_cdata
+    EXPORTING
+      data   = lv_request
+      offset = 0.
+
+*SEND HTTP REQUEST
+  CALL METHOD lv_http_client->send
+    EXCEPTIONS
+      http_communication_failure = 1
+      http_invalid_state         = 2.
+
+*GET HTTP RESPONSE
+  CALL METHOD lv_http_client->receive
+    EXCEPTIONS
+      http_communication_failure = 1
+      http_invalid_state         = 2
+      http_processing_failed     = 3.
+
+  CLEAR lv_response.
+  lv_response = lv_http_client->response->get_cdata( ).
+
+  CLEAR ls_SupplierServiceTest.
+  ls_SupplierServiceTest-request  = lv_request.  "Append Sent Request
+  ls_SupplierServiceTest-response = lv_response. "Append Receievd Response
+
+  APPEND ls_SupplierServiceTest TO et_entityset.
+  CLEAR ls_SupplierServiceTest.
+
+ENDMETHOD.
